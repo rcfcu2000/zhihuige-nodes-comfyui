@@ -2,10 +2,6 @@ import logging
 import copy
 import sys
 
-from modules import shared
-from reactor_utils import addLoggingLevel
-
-
 class ColoredFormatter(logging.Formatter):
     COLORS = {
         "DEBUG": "\033[0;36m",  # CYAN
@@ -31,7 +27,7 @@ logger.propagate = False
 
 # Add Custom Level
 # logging.addLevelName(logging.INFO, "STATUS")
-addLoggingLevel("STATUS", logging.INFO + 5)
+#addLoggingLevel("STATUS", logging.INFO + 5)
 
 # Add handler if we don't have one.
 if not logger.handlers:
@@ -42,6 +38,6 @@ if not logger.handlers:
     logger.addHandler(handler)
 
 # Configure logger
-loglevel_string = getattr(shared.cmd_opts, "reactor_loglevel", "INFO")
+loglevel_string = getattr(None, "reactor_loglevel", "INFO")
 loglevel = getattr(logging, loglevel_string.upper(), "info")
 logger.setLevel(loglevel)
