@@ -2,7 +2,6 @@ import logging
 import copy
 import sys
 
-from modules import shared
 from reactor_utils import addLoggingLevel
 
 
@@ -42,6 +41,6 @@ if not logger.handlers:
     logger.addHandler(handler)
 
 # Configure logger
-loglevel_string = getattr(shared.cmd_opts, "reactor_loglevel", "INFO")
+loglevel_string = getattr(None, "reactor_loglevel", "INFO")
 loglevel = getattr(logging, loglevel_string.upper(), "info")
 logger.setLevel(loglevel)
