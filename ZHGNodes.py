@@ -6,6 +6,8 @@ import cv2
 import json
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
+from scipy.ndimage import gaussian_filter
+from skimage import exposure
 
 
 from torchvision import transforms
@@ -61,7 +63,7 @@ class SaveZHGImage:
             file = f"{filename}_{counter:05}_.png"
             img.save(os.path.join(full_output_folder, file), pnginfo=metadata, compress_level=self.compress_level)
             results.append({
-                "filename": os.path.join(full_output_folder, file),
+                "filename": os.path.join(full_output_folder, file) + ' [zhihuige]',
                 "subfolder": subfolder,
                 "type": self.type
             })
@@ -132,7 +134,6 @@ class MaskCoverOp:
         
         output_ones = output.norm(1)
         destination_ones = destination_portion.norm(1)
-        print(output_ones, destination_ones)
         if (output_ones / destination_ones) < 0.2:
             result = 1
         else:
@@ -168,11 +169,114 @@ class GetFaceIndex:
             result = 0
         return (result,)
 
+
+class GetMaskArea:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "mask": ("MASK",),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "MASK",)
+    FUNCTION = "getimage"
+
+    CATEGORY = "ZHG Nodes"
+
+    def get_mask_aabb(self, masks):
+        if masks.numel() == 0:
+            return torch.zeros((0, 4), device=masks.device, dtype=torch.int)
+
+        b = masks.shape[0]
+
+        bounding_boxes = torch.zeros((b, 4), device=masks.device, dtype=torch.int)
+        is_empty = torch.zeros((b), device=masks.device, dtype=torch.bool)
+        for i in range(b):
+            mask = masks[i]
+            if mask.numel() == 0:
+                continue
+            if torch.max(mask != 0) == False:
+                is_empty[i] = True
+                continue
+            y, x = torch.where(mask)
+            bounding_boxes[i, 0] = torch.min(x)
+            bounding_boxes[i, 1] = torch.min(y)
+            bounding_boxes[i, 2] = torch.max(x)
+            bounding_boxes[i, 3] = torch.max(y)
+
+        return bounding_boxes, is_empty
+
+    def getimage(self, image, mask):
+        bounds = torch.max(torch.abs(mask),dim=0).values.unsqueeze(0)
+        boxes, is_empty = self.get_mask_aabb(bounds)
+
+        box = boxes[0]
+        H, W, Y, X = (box[3] - box[1] + 1, box[2] - box[0] + 1, box[1], box[0])
+        Y = int(Y.item()) - 50
+        X = int(X.item()) - int((1600 - W) / 2)
+        H = min(2400, int(H.item()))
+        W = max(1600, int(W.item()))
+        print(Y, Y+H, X, X+W)
+        image = image[:,Y:Y+H,X:X+W]
+        mask = mask[:,Y:Y+H,X:X+W]
+        return (image, mask)
+
+class SmoothEdge:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "sigma": ("FLOAT", {"default": 1.0}),
+                "gamma": ("INT", {"default": 20}),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+
+    FUNCTION = "smooth"
+
+    CATEGORY = "ZHG Nodes"
+
+    def img2tensor(img, bgr2rgb=True, float32=True):
+
+        def _totensor(img, bgr2rgb, float32):
+            if img.dtype == 'float64':
+                img = img.astype('float32')
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = torch.from_numpy(img.transpose(2, 0, 1))
+            if float32:
+                img = img.float()
+            return img
+
+        return _totensor(img, bgr2rgb, float32)
+
+    def smooth(self, image, sigma=1.5, gamma=20):
+        target_img = tensor_to_pil(image)
+        target_img = cv2.cvtColor(np.array(target_img), cv2.COLOR_RGB2BGR)
+        # blur the image
+        blurred_image = gaussian_filter(target_img, sigma=sigma)
+        # make image brighter
+        adjusted_image = exposure.adjust_gamma(blurred_image, gamma=20) 
+        # Lighten the blur. This makes the blurred edge to look more like natural.
+        adjusted_image = self.img2tensor(adjusted_image / 255.)
+        return (adjusted_image,)
+
 NODE_CLASS_MAPPINGS = {
     "Combine ZHGMasks": MaskCombineOp,
     "Cover ZHGMasks": MaskCoverOp,
     "ZHG FaceIndex": GetFaceIndex,
     "ZHG SaveImage": SaveZHGImage,
+    "ZHG SmoothEdge": SmoothEdge,
+    "ZHG GetMaskArea": GetMaskArea,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -180,4 +284,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Cover ZHGMasks": "Cover ZHGMasks",
     "ZHG FaceIndex": "ZHG FaceIndex",
     "ZHG SaveImage": "ZHG SaveImage",
+    "ZHG SmoothEdge": "ZHG SmoothEdge",
+    "ZHG GetMaskArea": "ZHG GetMaskArea",
 }
