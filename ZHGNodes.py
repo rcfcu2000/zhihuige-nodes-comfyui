@@ -132,7 +132,6 @@ class MaskCoverOp:
         
         output_ones = output.norm(1)
         destination_ones = destination_portion.norm(1)
-        print(output_ones, destination_ones)
         if (output_ones / destination_ones) < 0.2:
             result = 1
         else:
