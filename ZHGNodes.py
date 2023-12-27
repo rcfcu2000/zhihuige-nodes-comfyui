@@ -219,16 +219,19 @@ class GetMaskArea:
         bounds = torch.max(torch.abs(mask),dim=0).values.unsqueeze(0)
         boxes, is_empty = self.get_mask_aabb(bounds)
 
+        padding = 0.02
         box = boxes[0]
         H, W, Y, X = (box[3] - box[1] + 1, box[2] - box[0] + 1, box[1], box[0])
         hh = int(int(H.item()) * (1.0 - h_cutoff))
-        Y = int(Y.item()) - 50
-        X = int(X.item()) - int((max_width - W) / 2)
-        H = max(min_height, hh)
-        W = max(max_width, int(int(W.item()) * H / min_height))
-        image1 = image1[:,Y:Y+H,X:X+W]
-        image2 = image2[:,Y:Y+H,X:X+W]
-        mask = mask[:,Y:Y+H,X:X+W]
+        yy = int(Y.item()) - 50
+        hh = int((hh + 50) * (1 + padding))
+        ww = int(int(W.item()) * (1 + 20 * padding))
+        #X = int(X.item()) - 10
+        #W = int(W.item()) + 20
+        xx = int(int(X.item()) - ww / ( 1 + 20 * padding) * 10 * padding)
+        image1 = image1[:,yy:yy+hh,xx:xx+ww]
+        image2 = image2[:,yy:yy+hh,xx:xx+ww]
+        mask = mask[:,yy:yy+hh,xx:xx+ww]
         return (image1, image2, mask)
 
 class SmoothEdge:
