@@ -180,7 +180,7 @@ class GetMaskArea:
             "required": {
                 "image": ("IMAGE",),
                 "mask": ("MASK",),
-                "h_cutoff": ("FLOAT", {"default": 0}),
+                "h_cutoff": ("FLOAT", {"default": 0, "min": -1.0, "max": 1.0, "step": 0.001}),
                 "max_width": ("INT", {"default": 1600, "min": 0, "max": MAX_RESOLUTION, "step": 100}),
                 "min_height": ("INT", {"default": 2400, "min": 0, "max": MAX_RESOLUTION, "step": 100}),
             },
