@@ -180,6 +180,7 @@ class GetMaskArea:
             "required": {
                 "image": ("IMAGE",),
                 "mask": ("MASK",),
+                "h_cutoff": ("FLOAT", {"default": 0}),
                 "max_width": ("INT", {"default": 1600, "min": 0, "max": MAX_RESOLUTION, "step": 100}),
                 "min_height": ("INT", {"default": 2400, "min": 0, "max": MAX_RESOLUTION, "step": 100}),
             },
@@ -213,17 +214,17 @@ class GetMaskArea:
 
         return bounding_boxes, is_empty
 
-    def getimage(self, image, mask, max_width=1600, min_height=2400):
+    def getimage(self, image, mask, h_cutoff=0, max_width=1600, min_height=2400):
         bounds = torch.max(torch.abs(mask),dim=0).values.unsqueeze(0)
         boxes, is_empty = self.get_mask_aabb(bounds)
 
         box = boxes[0]
         H, W, Y, X = (box[3] - box[1] + 1, box[2] - box[0] + 1, box[1], box[0])
+        hh = int(int(H.item()) * (1.0 - h_cutoff))
         Y = int(Y.item()) - 50
         X = int(X.item()) - int((max_width - W) / 2)
-        H = min(min_height, int(H.item()))
-        W = max(max_width, int(W.item()))
-        print(Y, Y+H, X, X+W)
+        H = max(min_height, hh)
+        W = max(max_width, int(int(W.item()) * H / min_height))
         image = image[:,Y:Y+H,X:X+W]
         mask = mask[:,Y:Y+H,X:X+W]
         return (image, mask)
