@@ -178,15 +178,16 @@ class GetMaskArea:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
+                "image1": ("IMAGE",),
+                "image2": ("IMAGE",),
                 "mask": ("MASK",),
-                "h_cutoff": ("FLOAT", {"default": 0, "min": -1.0, "max": 1.0, "step": 0.001}),
+                "h_cutoff": ("FLOAT", {"default": 0, "step":0.001}),
                 "max_width": ("INT", {"default": 1600, "min": 0, "max": MAX_RESOLUTION, "step": 100}),
                 "min_height": ("INT", {"default": 2400, "min": 0, "max": MAX_RESOLUTION, "step": 100}),
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK",)
+    RETURN_TYPES = ("IMAGE", "IMAGE", "MASK",)
     FUNCTION = "getimage"
 
     CATEGORY = "ZHG Nodes"
@@ -214,7 +215,7 @@ class GetMaskArea:
 
         return bounding_boxes, is_empty
 
-    def getimage(self, image, mask, h_cutoff=0, max_width=1600, min_height=2400):
+    def getimage(self, image1, image2, mask, h_cutoff=0, max_width=1600, min_height=2400):
         bounds = torch.max(torch.abs(mask),dim=0).values.unsqueeze(0)
         boxes, is_empty = self.get_mask_aabb(bounds)
 
@@ -225,9 +226,10 @@ class GetMaskArea:
         X = int(X.item()) - int((max_width - W) / 2)
         H = max(min_height, hh)
         W = max(max_width, int(int(W.item()) * H / min_height))
-        image = image[:,Y:Y+H,X:X+W]
+        image1 = image1[:,Y:Y+H,X:X+W]
+        image2 = image2[:,Y:Y+H,X:X+W]
         mask = mask[:,Y:Y+H,X:X+W]
-        return (image, mask)
+        return (image1, image2, mask)
 
 class SmoothEdge:
     def __init__(self):
