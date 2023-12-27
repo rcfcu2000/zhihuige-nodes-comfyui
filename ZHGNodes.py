@@ -4,6 +4,7 @@ import numpy as np
 import math
 import cv2
 import json
+import copy
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 from scipy.ndimage import gaussian_filter
@@ -90,7 +91,7 @@ class MaskCombineOp:
 
     CATEGORY = "ZHG Nodes"
 
-    def combine(self, mask1, mask2, index):
+    def combine(self, mask1, mask2, index=0):
         
         if (index == 0):
             result = mask1
@@ -228,11 +229,13 @@ class GetMaskArea:
         ww = int(int(W.item()) * (1 + 20 * padding))
         #X = int(X.item()) - 10
         #W = int(W.item()) + 20
-        xx = int(int(X.item()) - ww / ( 1 + 20 * padding) * 10 * padding)
-        image1 = image1[:,yy:yy+hh,xx:xx+ww]
-        image2 = image2[:,yy:yy+hh,xx:xx+ww]
+        xx = max(int(int(X.item()) - ww / ( 1 + 20 * padding) * 10 * padding), 0)
+        image1_copy = copy.deepcopy(image1)
+        image11 = image1_copy[:,yy:yy+hh,xx:xx+ww]
+        image2_copy = copy.deepcopy(image2)
+        image22 = image2_copy[:,yy:yy+hh,xx:xx+ww]
         mask = mask[:,yy:yy+hh,xx:xx+ww]
-        return (image1, image2, mask)
+        return (image11, image22, mask)
 
 class SmoothEdge:
     def __init__(self):
