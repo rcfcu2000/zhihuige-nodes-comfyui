@@ -182,6 +182,7 @@ class GetMaskArea:
                 "image1": ("IMAGE",),
                 "image2": ("IMAGE",),
                 "mask": ("MASK",),
+                "h_offset": ("INT", {"default": 100, "step":10}),
                 "h_cutoff": ("FLOAT", {"default": 0, "step":0.001}),
                 "max_width": ("INT", {"default": 1600, "min": 0, "max": MAX_RESOLUTION, "step": 100}),
                 "min_height": ("INT", {"default": 2400, "min": 0, "max": MAX_RESOLUTION, "step": 100}),
@@ -216,7 +217,7 @@ class GetMaskArea:
 
         return bounding_boxes, is_empty
 
-    def getimage(self, image1, image2, mask, h_cutoff=0, max_width=1600, min_height=2400):
+    def getimage(self, image1, image2, mask, h_offset = 100, h_cutoff=0, max_width=1600, min_height=2400):
         bounds = torch.max(torch.abs(mask),dim=0).values.unsqueeze(0)
         boxes, is_empty = self.get_mask_aabb(bounds)
 
@@ -224,7 +225,7 @@ class GetMaskArea:
         box = boxes[0]
         H, W, Y, X = (box[3] - box[1] + 1, box[2] - box[0] + 1, box[1], box[0])
         hh = int(int(H.item()) * (1.0 - h_cutoff))
-        yy = int(Y.item()) - 50
+        yy = int(Y.item()) - h_offset
         hh = int((hh + 50) * (1 + padding))
         ww = int(int(W.item()) * (1 + 20 * padding))
         #X = int(X.item()) - 10
