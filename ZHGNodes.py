@@ -22,6 +22,181 @@ from .reactor_utils import tensor_to_pil
 import folder_paths
 from nodes import MAX_RESOLUTION
 
+import comfy
+import modules.shared as shared
+from .modules.scripts import USDUMode, USDUSFMode, Script
+from .utils import tensor_to_pil, pil_to_tensor
+from .modules.processing import StableDiffusionProcessing
+from .modules.upscaler import UpscalerData
+
+# The modes available for Ultimate SD Upscale
+MODES = {
+    "Linear": USDUMode.LINEAR,
+    "Chess": USDUMode.CHESS,
+    "None": USDUMode.NONE,
+}
+# The seam fix modes
+SEAM_FIX_MODES = {
+    "None": USDUSFMode.NONE,
+    "Band Pass": USDUSFMode.BAND_PASS,
+    "Half Tile": USDUSFMode.HALF_TILE,
+    "Half Tile + Intersections": USDUSFMode.HALF_TILE_PLUS_INTERSECTIONS,
+}
+
+
+def USDU_base_inputs():
+    return [
+        ("image", ("IMAGE",)),
+        # Sampling Params
+        ("model", ("MODEL",)),
+        ("positive", ("CONDITIONING",)),
+        ("negative", ("CONDITIONING",)),
+        ("vae", ("VAE",)),
+        ("upscale_by", ("FLOAT", {"default": 2, "min": 0.05, "max": 4, "step": 0.05})),
+        ("seed", ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff})),
+        ("steps", ("INT", {"default": 20, "min": 1, "max": 10000, "step": 1})),
+        ("cfg", ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0})),
+        ("sampler_name", (comfy.samplers.KSampler.SAMPLERS,)),
+        ("scheduler", (comfy.samplers.KSampler.SCHEDULERS,)),
+        ("denoise", ("FLOAT", {"default": 0.2, "min": 0.0, "max": 1.0, "step": 0.01})),
+        # Upscale Params
+        ("upscale_model", ("UPSCALE_MODEL",)),
+        ("mode_type", (list(MODES.keys()),)),
+        ("tile_width", ("INT", {"default": 512, "min": 64, "max": MAX_RESOLUTION, "step": 8})),
+        ("tile_height", ("INT", {"default": 512, "min": 64, "max": MAX_RESOLUTION, "step": 8})),
+        ("mask_blur", ("INT", {"default": 8, "min": 0, "max": 64, "step": 1})),
+        ("tile_padding", ("INT", {"default": 32, "min": 0, "max": MAX_RESOLUTION, "step": 8})),
+        # Seam fix params
+        ("seam_fix_mode", (list(SEAM_FIX_MODES.keys()),)),
+        ("seam_fix_denoise", ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01})),
+        ("seam_fix_width", ("INT", {"default": 64, "min": 0, "max": MAX_RESOLUTION, "step": 8})),
+        ("seam_fix_mask_blur", ("INT", {"default": 8, "min": 0, "max": 64, "step": 1})),
+        ("seam_fix_padding", ("INT", {"default": 16, "min": 0, "max": MAX_RESOLUTION, "step": 8})),
+        # Misc
+        ("force_uniform_tiles", ("BOOLEAN", {"default": True})),
+        ("tiled_decode", ("BOOLEAN", {"default": False})),
+    ]
+
+
+def prepare_inputs(required: list, optional: list = None):
+    inputs = {}
+    if required:
+        inputs["required"] = {}
+        for name, type in required:
+            inputs["required"][name] = type
+    if optional:
+        inputs["optional"] = {}
+        for name, type in optional:
+            inputs["optional"][name] = type
+    return inputs
+
+
+def remove_input(inputs: list, input_name: str):
+    for i, (n, _) in enumerate(inputs):
+        if n == input_name:
+            del inputs[i]
+            break
+
+
+def rename_input(inputs: list, old_name: str, new_name: str):
+    for i, (n, t) in enumerate(inputs):
+        if n == old_name:
+            inputs[i] = (new_name, t)
+            break
+
+
+class UltimateSDUpscale:
+    @classmethod
+    def INPUT_TYPES(s):
+        return prepare_inputs(USDU_base_inputs())
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "upscale"
+    CATEGORY = "ZHG Nodes/upscaling"
+
+    def upscale(self, image, model, positive, negative, vae, upscale_by, seed,
+                steps, cfg, sampler_name, scheduler, denoise, upscale_model,
+                mode_type, tile_width, tile_height, mask_blur, tile_padding,
+                seam_fix_mode, seam_fix_denoise, seam_fix_mask_blur,
+                seam_fix_width, seam_fix_padding, force_uniform_tiles, tiled_decode):
+        #
+        # Set up A1111 patches
+        #
+
+        # Upscaler
+        # An object that the script works with
+        shared.sd_upscalers = [None]
+        shared.sd_upscalers[0] = UpscalerData()
+        # Where the actual upscaler is stored, will be used when the script upscales using the Upscaler in UpscalerData
+        shared.actual_upscaler = upscale_model
+
+        # Set the batch of images
+        shared.batch = [tensor_to_pil(image, i) for i in range(len(image))]
+
+        # Processing
+        sdprocessing = StableDiffusionProcessing(
+            tensor_to_pil(image), model, positive, negative, vae,
+            seed, steps, cfg, sampler_name, scheduler, denoise, upscale_by, force_uniform_tiles, tiled_decode
+        )
+
+        #
+        # Running the script
+        #
+        script = Script()
+        processed = script.run(p=sdprocessing, _=None, tile_width=tile_width, tile_height=tile_height,
+                               mask_blur=mask_blur, padding=tile_padding, seams_fix_width=seam_fix_width,
+                               seams_fix_denoise=seam_fix_denoise, seams_fix_padding=seam_fix_padding,
+                               upscaler_index=0, save_upscaled_image=False, redraw_mode=MODES[mode_type],
+                               save_seams_fix_image=False, seams_fix_mask_blur=seam_fix_mask_blur,
+                               seams_fix_type=SEAM_FIX_MODES[seam_fix_mode], target_size_type=2,
+                               custom_width=None, custom_height=None, custom_scale=upscale_by)
+
+        # Return the resulting images
+        images = [pil_to_tensor(img) for img in shared.batch]
+        tensor = torch.cat(images, dim=0)
+        return (tensor,)
+
+
+class UltimateSDUpscaleNoUpscale:
+    @classmethod
+    def INPUT_TYPES(s):
+        required = USDU_base_inputs()
+        remove_input(required, "upscale_model")
+        remove_input(required, "upscale_by")
+        rename_input(required, "image", "upscaled_image")
+        return prepare_inputs(required)
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "upscale"
+    CATEGORY = "ZHG Nodes/upscaling"
+
+    def upscale(self, upscaled_image, model, positive, negative, vae, seed,
+                steps, cfg, sampler_name, scheduler, denoise,
+                mode_type, tile_width, tile_height, mask_blur, tile_padding,
+                seam_fix_mode, seam_fix_denoise, seam_fix_mask_blur,
+                seam_fix_width, seam_fix_padding, force_uniform_tiles, tiled_decode):
+
+        shared.sd_upscalers[0] = UpscalerData()
+        shared.actual_upscaler = None
+        shared.batch = [tensor_to_pil(upscaled_image, i) for i in range(len(upscaled_image))]
+        sdprocessing = StableDiffusionProcessing(
+            tensor_to_pil(upscaled_image), model, positive, negative, vae,
+            seed, steps, cfg, sampler_name, scheduler, denoise, 1, force_uniform_tiles, tiled_decode
+        )
+
+        script = usdu.Script()
+        processed = script.run(p=sdprocessing, _=None, tile_width=tile_width, tile_height=tile_height,
+                               mask_blur=mask_blur, padding=tile_padding, seams_fix_width=seam_fix_width,
+                               seams_fix_denoise=seam_fix_denoise, seams_fix_padding=seam_fix_padding,
+                               upscaler_index=0, save_upscaled_image=False, redraw_mode=MODES[mode_type],
+                               save_seams_fix_image=False, seams_fix_mask_blur=seam_fix_mask_blur,
+                               seams_fix_type=SEAM_FIX_MODES[seam_fix_mode], target_size_type=2,
+                               custom_width=None, custom_height=None, custom_scale=1)
+
+        images = [pil_to_tensor(img) for img in shared.batch]
+        tensor = torch.cat(images, dim=0)
+        return (tensor,)
+
 class SaveZHGImage:
     def __init__(self):
         self.type = "output"
@@ -289,6 +464,8 @@ NODE_CLASS_MAPPINGS = {
     "ZHG SaveImage": SaveZHGImage,
     "ZHG SmoothEdge": SmoothEdge,
     "ZHG GetMaskArea": GetMaskArea,
+    "ZHG UltimateSDUpscale": UltimateSDUpscale,
+    #"ZHG UltimateSDUpscaleNoUpscale": UltimateSDUpscaleNoUpscale
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -298,4 +475,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZHG SaveImage": "ZHG SaveImage",
     "ZHG SmoothEdge": "ZHG SmoothEdge",
     "ZHG GetMaskArea": "ZHG GetMaskArea",
+    "ZHG UltimateSDUpscale": "ZHG Ultimate SD Upscale",
+    #"ZHG UltimateSDUpscaleNoUpscale": "ZHG Ultimate SD Upscale (No Upscale)"
 }
