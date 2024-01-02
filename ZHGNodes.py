@@ -23,7 +23,7 @@ import folder_paths
 from nodes import MAX_RESOLUTION
 
 import comfy
-from modules import shared
+from .modules import shared
 from .modules.scripts import USDUMode, USDUSFMode, Script
 from .utils import tensor_to_pil, pil_to_tensor
 from .modules.processing import StableDiffusionProcessing
