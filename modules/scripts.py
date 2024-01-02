@@ -1,6 +1,5 @@
 import math
 from PIL import Image, ImageDraw, ImageOps
-from modules import processing, shared, images, scripts
 from .processing import StableDiffusionProcessing
 from .processing import fix_seed, Processed, process_images
 from .devices import torch_gc
