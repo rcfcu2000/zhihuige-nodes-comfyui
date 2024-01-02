@@ -5,6 +5,7 @@ from .processing import fix_seed, Processed, process_images
 from .devices import torch_gc
 from .images import flatten
 from enum import Enum
+from . import shared
 
 class USDUMode(Enum):
     LINEAR = 0

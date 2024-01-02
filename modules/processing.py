@@ -3,7 +3,7 @@ import torch
 import math
 from nodes import common_ksampler, VAEEncode, VAEDecode, VAEDecodeTiled
 from ..utils import pil_to_tensor, tensor_to_pil, get_crop_region, expand_crop, crop_cond
-from .shared import batch
+from . import shared
 
 if (not hasattr(Image, 'Resampling')):  # For older versions of Pillow
     Image.Resampling = Image
@@ -100,7 +100,7 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
         image_mask = image_mask.filter(ImageFilter.GaussianBlur(p.mask_blur))
 
     # Crop the images to get the tiles that will be used for generation
-    tiles = [img.crop(crop_region) for img in batch]
+    tiles = [img.crop(crop_region) for img in shared.batch]
 
     # Assume the same size for all images in the batch
     initial_tile_size = tiles[0].size
@@ -133,7 +133,7 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
     tiles_sampled = [tensor_to_pil(decoded, i) for i in range(len(decoded))]
 
     for i, tile_sampled in enumerate(tiles_sampled):
-        init_image = batch[i]
+        init_image = shared.batch[i]
 
         # Resize back to the original size
         if tile_sampled.size != initial_tile_size:
@@ -157,7 +157,7 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
         # Convert back to RGB
         result = result.convert('RGB')
 
-        batch[i] = result
+        shared.batch[i] = result
 
-    processed = Processed(p, [batch[0]], p.seed, None)
+    processed = Processed(p, [shared.batch[0]], p.seed, None)
     return processed
