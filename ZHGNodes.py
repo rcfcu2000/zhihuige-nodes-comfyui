@@ -5,7 +5,7 @@ import math
 import cv2
 import json
 import copy
-from PIL import Image
+from PIL import Image, ImageOps
 from PIL.PngImagePlugin import PngInfo
 from scipy.ndimage import gaussian_filter
 from skimage import exposure
@@ -17,15 +17,14 @@ import torchvision.transforms.functional as TF
 import torch.nn.functional as torchfn
 from .reactor_swapper import swap_face, get_current_faces_model, analyze_faces, get_face_single
 from .reactor_logger import logger
-from .reactor_utils import tensor_to_pil
 
 import folder_paths
 from nodes import MAX_RESOLUTION
 
 import comfy
+from .utils import tensor_to_pil, pil_to_tensor, tensor2pil, pil2tensor, pil2mask
 from .modules import shared
 from .modules.scripts import USDUMode, USDUSFMode, Script
-from .utils import tensor_to_pil, pil_to_tensor
 from .modules.processing import StableDiffusionProcessing
 from .modules.upscaler import UpscalerData
 
@@ -184,7 +183,7 @@ class UltimateSDUpscaleNoUpscale:
             seed, steps, cfg, sampler_name, scheduler, denoise, 1, force_uniform_tiles, tiled_decode
         )
 
-        script = usdu.Script()
+        script = Script()
         processed = script.run(p=sdprocessing, _=None, tile_width=tile_width, tile_height=tile_height,
                                mask_blur=mask_blur, padding=tile_padding, seams_fix_width=seam_fix_width,
                                seams_fix_denoise=seam_fix_denoise, seams_fix_padding=seam_fix_padding,
@@ -413,7 +412,9 @@ class GetMaskArea:
         mask = mask[:,yy:yy+hh,xx:xx+ww]
         return (image11, image22, mask)
 
-class SmoothEdge:
+# IMAGE LEVELS NODE
+
+class ZHG_Image_Levels:
     def __init__(self):
         pass
 
@@ -422,40 +423,145 @@ class SmoothEdge:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "sigma": ("FLOAT", {"default": 1.0}),
+                "black_level": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 255.0, "step": 0.1}),
+                "mid_level": ("FLOAT", {"default": 127.5, "min": 0.0, "max": 255.0, "step": 0.1}),
+                "white_level": ("FLOAT", {"default": 255, "min": 0.0, "max": 255.0, "step": 0.1}),
+            }
+        }
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "apply_image_levels"
+
+    CATEGORY = "ZHG Nodes/Image/Adjustment"
+
+    def apply_image_levels(self, image, black_level, mid_level, white_level):
+        tensor_images = []
+        for timg in image:
+            img = tensor2pil(timg)
+            levels = self.AdjustLevels(black_level, mid_level, white_level)
+            tensor_images.append(pil2tensor(levels.adjust(img)))
+        tensor_images = torch.cat(tensor_images, dim=0)
+
+        # Return adjust image tensor
+        return (tensor_images, )
+
+
+    class AdjustLevels:
+        def __init__(self, min_level, mid_level, max_level):
+            self.min_level = min_level
+            self.mid_level = mid_level
+            self.max_level = max_level
+
+        def isBright(self, pil_image):
+            gray_img = np.array(pil_image.convert('L'))
+            
+            # 获取形状以及长宽
+            img_shape = gray_img.shape
+            height, width = img_shape[0], img_shape[1]
+            size = gray_img.size
+            # 灰度图的直方图
+            hist = cv2.calcHist([gray_img], [0], None, [256], [0, 256])
+            
+            # 计算灰度图像素点偏离均值(128)程序
+            a = 0
+            ma = 0
+            reduce_matrix = np.full((height, width), 128)
+            shift_value = gray_img - reduce_matrix
+            shift_sum = sum(map(sum, shift_value))
+
+            da = shift_sum / size
+            # 计算偏离128的平均偏差
+            for i in range(256):
+                ma += (abs(i-128-da) * hist[i])
+            m = abs(ma / size)
+            # 亮度系数
+            k = abs(da) / m
+            # print(k)
+            if k[0] > 1:
+                # 过亮
+                if da > 0:
+                    #print("过亮")
+                    return True
+                else:
+                    #print("过暗")
+                    return False
+            else:
+                #print("亮度正常")
+                return False
+
+        def adjust(self, im):
+
+            if not self.isBright(im):
+                im_arr = np.array(im)
+                im_arr[im_arr < self.min_level] = self.min_level
+                im_arr = (im_arr - self.min_level) * \
+                    (255 / (self.max_level - self.min_level))
+                im_arr[im_arr < 0] = 0
+                im_arr[im_arr > 255] = 255
+                im_arr = im_arr.astype(np.uint8)
+                
+                im = Image.fromarray(im_arr)
+                im = ImageOps.autocontrast(im, cutoff=self.max_level)
+
+            return im
+
+class SmoothEdge:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "masks": ("MASK",),
+                "sigma": ("FLOAT", {"default":1.5, "min":0.0, "max":12.0, "step":0.1}),
                 "gamma": ("INT", {"default": 20}),
             },
         }
 
-    RETURN_TYPES = ("IMAGE",)
+    RETURN_TYPES = ("MASK",)
 
     FUNCTION = "smooth"
 
     CATEGORY = "ZHG Nodes"
 
-    def img2tensor(img, bgr2rgb=True, float32=True):
+    def img2tensor(self, img, bgr2rgb=True, float32=True):
 
-        def _totensor(img, bgr2rgb, float32):
-            if img.dtype == 'float64':
-                img = img.astype('float32')
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = torch.from_numpy(img.transpose(2, 0, 1))
-            if float32:
-                img = img.float()
-            return img
+        if img.dtype == 'float64':
+            img = img.astype('float32')
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = torch.from_numpy(img.transpose(2, 0, 1))
+        if float32:
+            img = img.float()
+        return img
 
-        return _totensor(img, bgr2rgb, float32)
+    def smooth_region(self, image, tolerance):
+        from scipy.ndimage import gaussian_filter
+        image = image.convert("L")
+        mask_array = np.array(image)
+        smoothed_array = gaussian_filter(mask_array, sigma=tolerance)
+        threshold = np.max(smoothed_array) / 2
+        smoothed_mask = np.where(smoothed_array >= threshold, 255, 0).astype(np.uint8)
+        smoothed_mask = exposure.adjust_gamma(smoothed_mask, gamma=20)
+        smoothed_image = Image.fromarray(smoothed_mask, mode="L")
+        return ImageOps.invert(smoothed_image.convert("RGB"))
 
-    def smooth(self, image, sigma=1.5, gamma=20):
-        target_img = tensor_to_pil(image)
-        target_img = cv2.cvtColor(np.array(target_img), cv2.COLOR_RGB2BGR)
-        # blur the image
-        blurred_image = gaussian_filter(target_img, sigma=sigma)
-        # make image brighter
-        adjusted_image = exposure.adjust_gamma(blurred_image, gamma=20) 
-        # Lighten the blur. This makes the blurred edge to look more like natural.
-        adjusted_image = self.img2tensor(adjusted_image / 255.)
-        return (adjusted_image,)
+    def smooth(self, masks, sigma=128, gamma=20):
+        if masks.ndim > 3:
+            regions = []
+            for mask in masks:
+                mask_np = np.clip(255. * mask.cpu().numpy().squeeze(), 0, 255).astype(np.uint8)
+                pil_image = Image.fromarray(mask_np, mode="L")
+                region_mask = self.smooth_region(pil_image, sigma)
+                region_tensor = pil2mask(region_mask).unsqueeze(0).unsqueeze(1)
+                regions.append(region_tensor)
+            regions_tensor = torch.cat(regions, dim=0)
+            return (regions_tensor,)
+        else:
+            mask_np = np.clip(255. * masks.cpu().numpy().squeeze(), 0, 255).astype(np.uint8)
+            pil_image = Image.fromarray(mask_np, mode="L")
+            region_mask = self.smooth_region(pil_image, sigma)
+            region_tensor = pil2mask(region_mask).unsqueeze(0).unsqueeze(1)
+            return (region_tensor,)
 
 NODE_CLASS_MAPPINGS = {
     "Combine ZHGMasks": MaskCombineOp,
@@ -464,8 +570,8 @@ NODE_CLASS_MAPPINGS = {
     "ZHG SaveImage": SaveZHGImage,
     "ZHG SmoothEdge": SmoothEdge,
     "ZHG GetMaskArea": GetMaskArea,
+    "ZHG Image Levels": ZHG_Image_Levels,
     "ZHG UltimateSDUpscale": UltimateSDUpscale,
-    #"ZHG UltimateSDUpscaleNoUpscale": UltimateSDUpscaleNoUpscale
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -475,6 +581,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZHG SaveImage": "ZHG SaveImage",
     "ZHG SmoothEdge": "ZHG SmoothEdge",
     "ZHG GetMaskArea": "ZHG GetMaskArea",
+    "ZHG Image Levels": "ZHG Image Levels",
     "ZHG UltimateSDUpscale": "ZHG Ultimate SD Upscale",
     #"ZHG UltimateSDUpscaleNoUpscale": "ZHG Ultimate SD Upscale (No Upscale)"
 }

@@ -1,11 +1,12 @@
 import math
 from PIL import Image, ImageDraw, ImageOps
 from .processing import StableDiffusionProcessing
-from .processing import fix_seed, Processed, process_images
-from .devices import torch_gc
-from .images import flatten
+from .processing import Processed
 from enum import Enum
 from . import shared
+from . import images
+from . import devices
+from . import processing
 
 class USDUMode(Enum):
     LINEAR = 0
@@ -90,6 +91,7 @@ class USDUpscaler():
         self.redraw.padding = padding
         self.p.mask_blur = mask_blur
 
+
     def setup_seams_fix(self, padding, denoise, mask_blur, width, mode):
         self.seams_fix.padding = padding
         self.seams_fix.denoise = denoise
@@ -98,11 +100,12 @@ class USDUpscaler():
         self.seams_fix.mode = USDUSFMode(mode)
         self.seams_fix.enabled = self.seams_fix.mode != USDUSFMode.NONE
 
+
     def save_image(self):
         if type(self.p.prompt) != list:
-            images.save_image(self.image, self.p.outpath_samples, "", self.p.seed, self.p.prompt, opts.samples_format, info=self.initial_info, p=self.p)
+            images.save_image(self.image, self.p.outpath_samples, "", self.p.seed, self.p.prompt, shared.opts.samples_format, info=self.initial_info, p=self.p)
         else:
-            images.save_image(self.image, self.p.outpath_samples, "", self.p.seed, self.p.prompt[0], opts.samples_format, info=self.initial_info, p=self.p)
+            images.save_image(self.image, self.p.outpath_samples, "", self.p.seed, self.p.prompt[0], shared.opts.samples_format, info=self.initial_info, p=self.p)
 
     def calc_jobs_count(self):
         redraw_job_count = (self.rows * self.cols) if self.redraw.enabled else 0
@@ -154,8 +157,8 @@ class USDURedraw():
     def init_draw(self, p, width, height):
         p.inpaint_full_res = True
         p.inpaint_full_res_padding = self.padding
-        p.width = math.ceil((self.tile_width+self.padding) / 64) * 64
-        p.height = math.ceil((self.tile_height+self.padding) / 64) * 64
+        p.width = math.ceil((self.tile_width+self.padding) / 8) * 8
+        p.height = math.ceil((self.tile_height+self.padding) / 8) * 8
         mask = Image.new("L", (width, height), "black")
         draw = ImageDraw.Draw(mask)
         return mask, draw
@@ -177,7 +180,7 @@ class USDURedraw():
                 draw.rectangle(self.calc_rectangle(xi, yi), fill="white")
                 p.init_images = [image]
                 p.image_mask = mask
-                processed = process_images(p)
+                processed = processing.process_images(p)
                 draw.rectangle(self.calc_rectangle(xi, yi), fill="black")
                 if (len(processed.images) > 0):
                     image = processed.images[0]
@@ -205,7 +208,7 @@ class USDURedraw():
 
         for yi in range(len(tiles)):
             for xi in range(len(tiles[yi])):
-                if state.interrupted:
+                if shared.state.interrupted:
                     break
                 if not tiles[yi][xi]:
                     tiles[yi][xi] = not tiles[yi][xi]
@@ -214,7 +217,7 @@ class USDURedraw():
                 draw.rectangle(self.calc_rectangle(xi, yi), fill="white")
                 p.init_images = [image]
                 p.image_mask = mask
-                processed = process_images(p)
+                processed = processing.process_images(p)
                 draw.rectangle(self.calc_rectangle(xi, yi), fill="black")
                 if (len(processed.images) > 0):
                     image = processed.images[0]
@@ -228,7 +231,7 @@ class USDURedraw():
                 draw.rectangle(self.calc_rectangle(xi, yi), fill="white")
                 p.init_images = [image]
                 p.image_mask = mask
-                processed = process_images(p)
+                processed = processing.process_images(p)
                 draw.rectangle(self.calc_rectangle(xi, yi), fill="black")
                 if (len(processed.images) > 0):
                     image = processed.images[0]
@@ -250,8 +253,8 @@ class USDUSeamsFix():
 
     def init_draw(self, p):
         self.initial_info = None
-        p.width = math.ceil((self.tile_width+self.padding) / 64) * 64
-        p.height = math.ceil((self.tile_height+self.padding) / 64) * 64
+        p.width = math.ceil((self.tile_width+self.padding) / 8) * 8
+        p.height = math.ceil((self.tile_height+self.padding) / 8) * 8
 
     def half_tile_process(self, p, image, rows, cols):
 
@@ -287,7 +290,7 @@ class USDUSeamsFix():
 
                 p.init_images = [image]
                 p.image_mask = mask
-                processed = process_images(p)
+                processed = processing.process_images(p)
                 if (len(processed.images) > 0):
                     image = processed.images[0]
 
@@ -304,7 +307,7 @@ class USDUSeamsFix():
 
                 p.init_images = [image]
                 p.image_mask = mask
-                processed = process_images(p)
+                processed = processing.process_images(p)
                 if (len(processed.images) > 0):
                     image = processed.images[0]
 
@@ -340,7 +343,7 @@ class USDUSeamsFix():
 
                 p.init_images = [fixed_image]
                 p.image_mask = mask
-                processed = process_images(p)
+                processed = processing.process_images(p)
                 if (len(processed.images) > 0):
                     fixed_image = processed.images[0]
 
@@ -379,7 +382,7 @@ class USDUSeamsFix():
 
             p.init_images = [image]
             p.image_mask = mask
-            processed = process_images(p)
+            processed = processing.process_images(p)
             if (len(processed.images) > 0):
                 image = processed.images[0]
         for yi in range(1, cols):
@@ -394,7 +397,7 @@ class USDUSeamsFix():
 
             p.init_images = [image]
             p.image_mask = mask
-            processed = process_images(p)
+            processed = processing.process_images(p)
             if (len(processed.images) > 0):
                 image = processed.images[0]
 
@@ -427,8 +430,8 @@ class Script():
             seams_fix_type, target_size_type, custom_width, custom_height, custom_scale):
 
         # Init
-        fix_seed(p)
-        torch_gc()
+        processing.fix_seed(p)
+        devices.torch_gc()
 
         p.do_not_save_grid = True
         p.do_not_save_samples = True
@@ -444,15 +447,15 @@ class Script():
         init_img = p.init_images[0]
         if init_img == None:
             return Processed(p, [], seed, "Empty image")
-        init_img = flatten(init_img, shared.opts.img2img_background_color)
+        init_img = images.flatten(init_img, shared.opts.img2img_background_color)
 
         #override size
         if target_size_type == 1:
             p.width = custom_width
             p.height = custom_height
         if target_size_type == 2:
-            p.width = math.ceil((init_img.width * custom_scale) / 64) * 64
-            p.height = math.ceil((init_img.height * custom_scale) / 64) * 64
+            p.width = math.ceil((init_img.width * custom_scale) / 8) * 8
+            p.height = math.ceil((init_img.height * custom_scale) / 8) * 8
 
         # Upscaling
         upscaler = USDUpscaler(p, init_img, upscaler_index, save_upscaled_image, save_seams_fix_image, tile_width, tile_height)

@@ -10,6 +10,27 @@ if (not hasattr(Image, 'Resampling')):  # For older versions of Pillow
 
 BLUR_KERNEL_SIZE = 15
 
+# PIL to Mask
+def pil2mask(image):
+    image_np = np.array(image.convert("L")).astype(np.float32) / 255.0
+    mask = torch.from_numpy(image_np)
+    return 1.0 - mask
+    
+# Mask to PIL
+def mask2pil(mask):
+    if mask.ndim > 2:
+        mask = mask.squeeze(0)
+    mask_np = mask.cpu().numpy().astype('uint8')
+    mask_pil = Image.fromarray(mask_np, mode="L")
+    return mask_pil
+    
+# Tensor to PIL
+def tensor2pil(image):
+    return Image.fromarray(np.clip(255. * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8))
+    
+# PIL to Tensor
+def pil2tensor(image):
+    return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0)
 
 def tensor_to_pil(img_tensor, batch_index=0):
     # Takes an image in a batch in the form of a tensor of shape [batch_size, channels, height, width]

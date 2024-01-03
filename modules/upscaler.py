@@ -11,7 +11,7 @@ class Upscaler:
 
     def _upscale(self, img: Image, scale):
         if (shared.actual_upscaler is None):
-            return img.resize((img.width * scale, img.height * scale), Image.Resampling.NEAREST)
+            return img.resize((img.width * scale, img.height * scale), Image.Resampling.LANCZOS)
         tensor = pil_to_tensor(img)
         image_upscale_node = ImageUpscaleWithModel()
         (upscaled,) = image_upscale_node.upscale(shared.actual_upscaler, tensor)
