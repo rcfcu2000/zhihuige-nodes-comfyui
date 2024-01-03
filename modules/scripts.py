@@ -100,9 +100,9 @@ class USDUpscaler():
 
     def save_image(self):
         if type(self.p.prompt) != list:
-            images.save_image(self.image, self.p.outpath_samples, "", self.p.seed, self.p.prompt, opts.samples_format, info=self.initial_info, p=self.p)
+            images.save_image(self.image, self.p.outpath_samples, "", self.p.seed, self.p.prompt, shared.opts.samples_format, info=self.initial_info, p=self.p)
         else:
-            images.save_image(self.image, self.p.outpath_samples, "", self.p.seed, self.p.prompt[0], opts.samples_format, info=self.initial_info, p=self.p)
+            images.save_image(self.image, self.p.outpath_samples, "", self.p.seed, self.p.prompt[0], shared.opts.samples_format, info=self.initial_info, p=self.p)
 
     def calc_jobs_count(self):
         redraw_job_count = (self.rows * self.cols) if self.redraw.enabled else 0
@@ -205,7 +205,7 @@ class USDURedraw():
 
         for yi in range(len(tiles)):
             for xi in range(len(tiles[yi])):
-                if state.interrupted:
+                if shared.state.interrupted:
                     break
                 if not tiles[yi][xi]:
                     tiles[yi][xi] = not tiles[yi][xi]
