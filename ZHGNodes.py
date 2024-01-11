@@ -743,7 +743,7 @@ class MaskCoverOp:
         
         output_ones = output.norm(1)
         destination_ones = destination_portion.norm(1)
-        if (output_ones / destination_ones) < 0.2:
+        if (output_ones / destination_ones) < 0.5:
             result = 1
         else:
             result = 0
